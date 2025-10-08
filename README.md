@@ -49,7 +49,7 @@ python crop_alpha.py -s renders/your_model_000.png -d output/your_model_000.jpg 
 ```
 *Or process all renders in one command:*
 ```bash
-find renders/ -name "*.png" -exec python crop_alpha.py -s {} -d "{}.jpg" -f \;
+find . -name "*.png" -exec python crop_alpha.py -s {} -w 768 -H 1152 -d "{}.jpg" -f \;
 ```
 
 ## 📂 Output Structure
