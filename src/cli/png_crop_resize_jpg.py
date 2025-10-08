@@ -18,7 +18,7 @@ RESOLUTIONS = (
 )
 
 BACKGROUND_COLORS = {
-    "ultra_light": (192, 192, 192),
+    "ultra_light": (240, 240, 240),
     "light": (128, 128, 128),
     "medium": (64, 64, 64),
     "dark": (32, 32, 32),
@@ -144,7 +144,7 @@ def main():
     parser.add_argument(
         "--size",
         type=int,
-        default=6,
+        default=1,
         help="Index in RESOLUTIONS array (0-8)",
         choices=range(len(RESOLUTIONS))
     )
@@ -156,7 +156,7 @@ def main():
     parser.add_argument(
         "--background",
         choices=list(BACKGROUND_COLORS.keys()),
-        default="light",
+        default="ultra_light",
         help="Background color scheme"
     )
 
@@ -176,6 +176,8 @@ def main():
     )
 
     try:
+        print(background_color)
+
         process_image(
             source_path,
             output_path,
