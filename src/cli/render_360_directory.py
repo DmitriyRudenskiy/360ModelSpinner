@@ -198,9 +198,9 @@ def process_file(file_path):
 
     # Трехточечная схема освещения
     light_distance = camera_distance * 0.8
-    add_light("Light_Key", (-3, -light_distance, 4), 800)  # Основной свет
-    add_light("Light_Fill", (3, -light_distance, 2), 400)  # Заполняющий свет
-    add_light("Light_Rim", (0, light_distance * 0.5, 4), 600)  # Контровой свет
+    add_light("Light_Key", (-3, -light_distance, 4), 200)  # Основной свет
+    add_light("Light_Fill", (3, -light_distance, 2), 100)  # Заполняющий свет
+    add_light("Light_Rim", (0, light_distance * 0.5, 4), 120)  # Контровой свет
 
     # Настройка рендера
     print("[INFO] Настройка рендера...")
@@ -212,7 +212,7 @@ def process_file(file_path):
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
     bpy.context.scene.render.film_transparent = True
-    bpy.context.scene.view_settings.exposure = 1.2
+    bpy.context.scene.view_settings.exposure = 0.0
 
     # Настройка цветового пространства для лучшего качества
     bpy.context.scene.view_settings.view_transform = 'Standard'
@@ -231,8 +231,8 @@ def process_file(file_path):
         nodes.clear()
 
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (1, 1, 1, 1)
-        bsdf.inputs['Roughness'].default_value = 0.8
+        bsdf.inputs['Base Color'].default_value = (0.9, 0.9, 0.9, 1)
+        bsdf.inputs['Roughness'].default_value = 0.6
         bsdf.inputs['Metallic'].default_value = 0.0
 
         # Устанавливаем Specular только если параметр существует (совместимость с разными версиями Blender)
