@@ -83,31 +83,50 @@ def process_file(file_path):
         print(f"[ERROR] Ошибка импорта {ext.upper()}: {e}")
         return False
 
-    # Центрирование модели
-    print("[INFO] Центрирование модели...")
+    # Получение всех mesh объектов
+    print("[INFO] Анализ импортированной модели...")
     mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
 
     if not mesh_objects:
         print("[ERROR] Не найдено объектов типа MESH после импорта.")
         return False
 
+    # Расчет bounding box всей модели
     all_coords = []
     for obj in mesh_objects:
         matrix = obj.matrix_world
         for v in obj.data.vertices:
             all_coords.append(matrix @ v.co)
 
-    if all_coords:
-        min_co = Vector(map(min, zip(*all_coords)))
-        max_co = Vector(map(max, zip(*all_coords)))
-        center = (min_co + max_co) / 2
-        size = max_co - min_co
-        max_dim = max(size.x, size.y, size.z)
-    else:
-        center = Vector((0, 0, 0))
-        max_dim = 1.0
+    if not all_coords:
+        print("[ERROR] Модель не содержит вершин.")
+        return False
 
-    # Создание пустышки для вращения
+    # Вычисление размеров и центра модели
+    min_co = Vector((min(c.x for c in all_coords),
+                     min(c.y for c in all_coords),
+                     min(c.z for c in all_coords)))
+    max_co = Vector((max(c.x for c in all_coords),
+                     max(c.y for c in all_coords),
+                     max(c.z for c in all_coords)))
+
+    center = (min_co + max_co) / 2
+    size = max_co - min_co
+    max_dim = max(size.x, size.y, size.z)
+
+    print(f"[INFO] Размеры модели: {size.x:.2f} x {size.y:.2f} x {size.z:.2f}")
+    print(f"[INFO] Центр модели: {center.x:.2f}, {center.y:.2f}, {center.z:.2f}")
+    print(f"[INFO] Максимальный размер: {max_dim:.2f}")
+
+    # Перемещение модели в начало координат
+    print("[INFO] Центрирование модели...")
+    for obj in mesh_objects:
+        obj.location -= center
+
+    # Пересчет после перемещения
+    center = Vector((0, 0, 0))
+
+    # Создание пустышки для вращения в центре
     print("[INFO] Создание точки вращения...")
     bpy.ops.object.empty_add(type='PLAIN_AXES', radius=0.1, location=center)
     pivot = bpy.context.object
@@ -118,14 +137,19 @@ def process_file(file_path):
         obj.parent = pivot
         obj.matrix_parent_inverse = Matrix.Identity(4)
 
-    # Масштабирование модели
+    # Нормализация размера модели к стандартному масштабу (например, 2 единицы)
+    target_size = 2.0
     if max_dim > 0:
-        scale_factor = max(1.2 / max_dim, 0.9)
+        scale_factor = target_size / max_dim
+        print(f"[INFO] Масштабирование модели с коэффициентом {scale_factor:.3f}")
         bpy.ops.object.select_all(action='DESELECT')
-        for obj in mesh_objects:
-            obj.select_set(True)
-        bpy.ops.transform.resize(value=(scale_factor, scale_factor, scale_factor))
+        pivot.select_set(True)
+        bpy.context.view_layer.objects.active = pivot
+        pivot.scale = (scale_factor, scale_factor, scale_factor)
         bpy.ops.object.select_all(action='DESELECT')
+
+        # Обновляем max_dim после масштабирования
+        max_dim = target_size
 
     # Настройка камеры
     print("[INFO] Настройка камеры...")
@@ -133,7 +157,19 @@ def process_file(file_path):
     camera = bpy.context.object
     camera.data.type = 'PERSP'
     camera.data.lens = 50
-    camera.location = (0, -max(2.0, max_dim * 1.8), 0)
+
+    # Расчет расстояния камеры для полного охвата модели
+    # Используем формулу: distance = (model_size / 2) / tan(fov/2)
+    # где fov - угол обзора камеры
+    fov = 2 * math.atan(36 / (2 * camera.data.lens))  # 36mm - размер сенсора
+    camera_distance = (max_dim * 0.6) / math.tan(fov / 2)
+    camera_distance = max(camera_distance, 3.5)  # Минимальное расстояние
+
+    print(f"[INFO] Расстояние камеры: {camera_distance:.2f}")
+
+    camera.location = (0, -camera_distance, 0)
+
+    # Направляем камеру на центр
     direction = (center - camera.location).normalized()
     rot_quat = direction.to_track_quat('-Z', 'Y')
     camera.rotation_euler = rot_quat.to_euler()
@@ -150,45 +186,64 @@ def process_file(file_path):
     print("[INFO] Добавление источников света...")
 
     def add_light(name, loc, energy):
-        bpy.ops.object.light_add(type='AREA', radius=0.5)
+        bpy.ops.object.light_add(type='AREA', radius=1.0)
         light = bpy.context.object
         light.name = name
         light.data.energy = energy
         light.location = loc
+        # Направляем свет на центр
+        direction = (center - Vector(loc)).normalized()
+        rot_quat = direction.to_track_quat('-Z', 'Y')
+        light.rotation_euler = rot_quat.to_euler()
 
-    add_light("Light_Left", (-5, -5, 3), 500)
-    add_light("Light_Right", (5, -5, 3), 500)
-    add_light("Light_Top", (0, -5, 6), 500)
+    # Трехточечная схема освещения
+    light_distance = camera_distance * 0.8
+    add_light("Light_Key", (-3, -light_distance, 4), 800)  # Основной свет
+    add_light("Light_Fill", (3, -light_distance, 2), 400)  # Заполняющий свет
+    add_light("Light_Rim", (0, light_distance * 0.5, 4), 600)  # Контровой свет
 
     # Настройка рендера
     print("[INFO] Настройка рендера...")
     bpy.context.scene.render.engine = 'CYCLES'
     bpy.context.scene.cycles.device = 'CPU'
+    bpy.context.scene.cycles.samples = 128  # Увеличиваем качество
     bpy.context.scene.render.resolution_x = 2048
     bpy.context.scene.render.resolution_y = 2048
     bpy.context.scene.render.image_settings.file_format = 'PNG'
     bpy.context.scene.render.image_settings.color_mode = 'RGBA'
     bpy.context.scene.render.film_transparent = True
-    bpy.context.scene.view_settings.exposure = 1.5
+    bpy.context.scene.view_settings.exposure = 1.2
+
+    # Настройка цветового пространства для лучшего качества
+    bpy.context.scene.view_settings.view_transform = 'Standard'
+    bpy.context.scene.view_settings.look = 'None'
 
     # Применение белого материала
     print("[INFO] Применение материалов...")
     for obj in mesh_objects:
-        if not obj.data.materials:
-            mat = bpy.data.materials.new(name="White_Material")
-            mat.use_nodes = True
-            nodes = mat.node_tree.nodes
-            nodes.clear()
+        # Очищаем старые материалы
+        obj.data.materials.clear()
 
-            bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-            bsdf.inputs['Base Color'].default_value = (1, 1, 1, 1)
-            bsdf.inputs['Roughness'].default_value = 1.0
-            bsdf.inputs['Specular'].default_value = 0.0
-            bsdf.inputs['Metallic'].default_value = 0.0
+        # Создаем новый материал
+        mat = bpy.data.materials.new(name="White_Material")
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        nodes.clear()
 
-            output = nodes.new('ShaderNodeOutputMaterial')
-            mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
-            obj.data.materials.append(mat)
+        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.inputs['Base Color'].default_value = (1, 1, 1, 1)
+        bsdf.inputs['Roughness'].default_value = 0.8
+        bsdf.inputs['Metallic'].default_value = 0.0
+
+        # Устанавливаем Specular только если параметр существует (совместимость с разными версиями Blender)
+        if 'Specular' in bsdf.inputs:
+            bsdf.inputs['Specular'].default_value = 0.2
+        elif 'Specular IOR Level' in bsdf.inputs:
+            bsdf.inputs['Specular IOR Level'].default_value = 0.5
+
+        output = nodes.new('ShaderNodeOutputMaterial')
+        mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+        obj.data.materials.append(mat)
 
     # Подготовка папки
     output_dir = os.path.join(os.path.dirname(file_path), "renders")
@@ -214,8 +269,8 @@ def process_file(file_path):
             continue
 
         print(f"[INFO] Рендеринг угла {angle} градусов...")
-        # Вращаем пустышку
-        pivot.rotation_euler = (0, 0, -math.radians(angle))
+        # Вращаем пустышку вокруг оси Z
+        pivot.rotation_euler = (0, 0, math.radians(angle))
         bpy.context.view_layer.update()
 
         bpy.context.scene.render.filepath = file_path_render
