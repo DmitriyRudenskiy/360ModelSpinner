@@ -2,7 +2,8 @@ import argparse
 import os
 import sys
 from PIL import Image
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
+import glob
 
 # Константы
 RESOLUTIONS = (
@@ -26,6 +27,39 @@ BACKGROUND_COLORS = {
 }
 
 
+def find_png_files(source_path: str, recursive: bool = False) -> List[str]:
+    """
+    Находит все PNG файлы в указанном пути.
+
+    Args:
+        source_path: Путь к файлу или директории
+        recursive: Рекурсивно искать в поддиректориях
+
+    Returns:
+        Список путей к PNG файлам
+    """
+    if os.path.isfile(source_path):
+        if source_path.lower().endswith('.png'):
+            return [source_path]
+        else:
+            raise ValueError(f"File must be PNG: {source_path}")
+
+    if os.path.isdir(source_path):
+        if recursive:
+            pattern = os.path.join(source_path, "**", "*.png")
+            png_files = glob.glob(pattern, recursive=True)
+        else:
+            pattern = os.path.join(source_path, "*.png")
+            png_files = glob.glob(pattern)
+
+        if not png_files:
+            raise FileNotFoundError(f"No PNG files found in directory: {source_path}")
+
+        return png_files
+
+    raise FileNotFoundError(f"Path not found: {source_path}")
+
+
 def validate_input(source_path: str) -> None:
     """Проверяет корректность входного файла."""
     if not os.path.exists(source_path):
@@ -33,6 +67,12 @@ def validate_input(source_path: str) -> None:
 
     if not source_path.lower().endswith(".png"):
         raise ValueError("Input file must be a PNG image (extension .png)")
+
+
+def validate_input_list(source_paths: List[str]) -> None:
+    """Проверяет корректность списка входных файлов."""
+    for source_path in source_paths:
+        validate_input(source_path)
 
 
 def validate_output(output_path: str, force: bool) -> None:
@@ -135,7 +175,7 @@ def main():
     parser.add_argument(
         "-s", "--source",
         required=True,
-        help="Input PNG file path"
+        help="Input PNG file path or directory containing PNG files"
     )
     parser.add_argument(
         "-d", "--destination",
@@ -159,34 +199,59 @@ def main():
         default="ultra_light",
         help="Background color scheme"
     )
+    parser.add_argument(
+        "-r", "--recursive",
+        action="store_true",
+        help="Recursively search for PNG files in subdirectories"
+    )
 
     args = parser.parse_args()
 
     # Определение цвета фона
     background_color = BACKGROUND_COLORS[args.background]
-
-    # Обработка изображения
-    source_path = os.path.abspath(args.source)
     width, height = RESOLUTIONS[args.size]
-    output_path = get_output_path(
-        source_path,
-        args.destination,
-        width,
-        height
-    )
 
+    # Найдем все PNG файлы для обработки
+    source_path = os.path.abspath(args.source)
     try:
-        print(background_color)
-
-        process_image(
-            source_path,
-            output_path,
-            (width, height),
-            background_color,
-            args.force
-        )
+        png_files = find_png_files(source_path, args.recursive)
+        validate_input_list(png_files)
     except Exception as e:
-        print(f"✗ Failed: {str(e)}", file=sys.stderr)
+        print(f"✗ Failed to find PNG files: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+    # Обработка всех файлов
+    successful = 0
+    failed = 0
+
+    for png_file in png_files:
+        try:
+            output_path = get_output_path(
+                png_file,
+                args.destination,
+                width,
+                height
+            )
+
+            print(f"Processing: {os.path.basename(png_file)}")
+
+            process_image(
+                png_file,
+                output_path,
+                (width, height),
+                background_color,
+                args.force
+            )
+            successful += 1
+
+        except Exception as e:
+            print(f"✗ Failed to process {os.path.basename(png_file)}: {str(e)}", file=sys.stderr)
+            failed += 1
+
+    # Итоговая статистика
+    print(f"\nProcessing complete: {successful} successful, {failed} failed out of {len(png_files)} total files")
+
+    if failed > 0:
         sys.exit(1)
 
 
