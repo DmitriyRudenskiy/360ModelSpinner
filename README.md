@@ -89,6 +89,8 @@ your_model/
    # Render with tighter camera framing
    blender --python render_360.py -- your_model.glb
    python crop_alpha.py -s renders/ -w 1024 -H 1024
+   
+   
    ```
 
 2. **For E-commerce:**

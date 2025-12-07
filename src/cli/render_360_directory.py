@@ -68,19 +68,21 @@ def process_file(file_path):
     print("[INFO] Очистка сцены...")
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
+    # Определение типа файла
+    file_ext = os.path.splitext(file_path)[1].lower()
+
     # Импорт файла
     print(f"[INFO] Импорт файла: {os.path.basename(file_path)}")
     try:
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.glb':
+        if file_ext == '.glb':
             bpy.ops.import_scene.gltf(filepath=file_path)
-        elif ext == '.stl':
+        elif file_ext == '.stl':
             bpy.ops.import_mesh.stl(filepath=file_path)
         else:
-            print(f"[ERROR] Неподдерживаемый формат файла: {ext}")
+            print(f"[ERROR] Неподдерживаемый формат файла: {file_ext}")
             return False
     except Exception as e:
-        print(f"[ERROR] Ошибка импорта {ext.upper()}: {e}")
+        print(f"[ERROR] Ошибка импорта {file_ext.upper()}: {e}")
         return False
 
     # Получение всех mesh объектов
@@ -218,32 +220,70 @@ def process_file(file_path):
     bpy.context.scene.view_settings.view_transform = 'Standard'
     bpy.context.scene.view_settings.look = 'None'
 
-    # Применение белого материала
-    print("[INFO] Применение материалов...")
-    for obj in mesh_objects:
-        # Очищаем старые материалы
-        obj.data.materials.clear()
+    # Применение материалов в зависимости от типа файла
+    print(f"[INFO] Применение материалов для файла {file_ext.upper()}...")
 
-        # Создаем новый материал
-        mat = bpy.data.materials.new(name="White_Material")
-        mat.use_nodes = True
-        nodes = mat.node_tree.nodes
-        nodes.clear()
+    if file_ext == '.stl':
+        # Для STL файлов применяем белый материал (как и раньше)
+        for obj in mesh_objects:
+            # Очищаем старые материалы
+            obj.data.materials.clear()
 
-        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.9, 0.9, 0.9, 1)
-        bsdf.inputs['Roughness'].default_value = 0.6
-        bsdf.inputs['Metallic'].default_value = 0.0
+            # Создаем новый материал
+            mat = bpy.data.materials.new(name="White_Material")
+            mat.use_nodes = True
+            nodes = mat.node_tree.nodes
+            nodes.clear()
 
-        # Устанавливаем Specular только если параметр существует (совместимость с разными версиями Blender)
-        if 'Specular' in bsdf.inputs:
-            bsdf.inputs['Specular'].default_value = 0.2
-        elif 'Specular IOR Level' in bsdf.inputs:
-            bsdf.inputs['Specular IOR Level'].default_value = 0.5
+            bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+            bsdf.inputs['Base Color'].default_value = (0.9, 0.9, 0.9, 1)
+            bsdf.inputs['Roughness'].default_value = 0.6
+            bsdf.inputs['Metallic'].default_value = 0.0
 
-        output = nodes.new('ShaderNodeOutputMaterial')
-        mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
-        obj.data.materials.append(mat)
+            # Устанавливаем Specular только если параметр существует (совместимость с разными версиями Blender)
+            if 'Specular' in bsdf.inputs:
+                bsdf.inputs['Specular'].default_value = 0.2
+            elif 'Specular IOR Level' in bsdf.inputs:
+                bsdf.inputs['Specular IOR Level'].default_value = 0.5
+
+            output = nodes.new('ShaderNodeOutputMaterial')
+            mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+            obj.data.materials.append(mat)
+
+    elif file_ext == '.glb':
+        # Для GLB файлов сохраняем оригинальные материалы и текстуры
+        objects_with_materials = 0
+        total_objects = len(mesh_objects)
+
+        for obj in mesh_objects:
+            if obj.data.materials:
+                objects_with_materials += 1
+                print(f"[INFO] Объект '{obj.name}' содержит {len(obj.data.materials)} материал(ов)")
+            else:
+                print(f"[INFO] Объект '{obj.name}' не содержит материалов, применяем белый материал")
+                # Создаем белый материал для объектов без материалов
+                mat = bpy.data.materials.new(name=f"White_Material_{obj.name}")
+                mat.use_nodes = True
+                nodes = mat.node_tree.nodes
+                nodes.clear()
+
+                bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+                bsdf.inputs['Base Color'].default_value = (0.9, 0.9, 0.9, 1)
+                bsdf.inputs['Roughness'].default_value = 0.6
+                bsdf.inputs['Metallic'].default_value = 0.0
+
+                if 'Specular' in bsdf.inputs:
+                    bsdf.inputs['Specular'].default_value = 0.2
+                elif 'Specular IOR Level' in bsdf.inputs:
+                    bsdf.inputs['Specular IOR Level'].default_value = 0.5
+
+                output = nodes.new('ShaderNodeOutputMaterial')
+                mat.node_tree.links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+                obj.data.materials.append(mat)
+
+        print(f"[INFO] GLB файл: {objects_with_materials}/{total_objects} объектов содержат материалы")
+        if objects_with_materials > 0:
+            print(f"[INFO] Сохранены оригинальные материалы и текстуры из GLB файла")
 
     # Подготовка папки
     output_dir = os.path.join(os.path.dirname(file_path), "renders")
