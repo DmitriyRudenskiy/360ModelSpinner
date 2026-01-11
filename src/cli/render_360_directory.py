@@ -3,6 +3,7 @@ import sys
 import os
 import math
 import hashlib
+import shutil
 from mathutils import Vector, Matrix
 
 
@@ -13,6 +14,58 @@ def calculate_md5(file_path):
         for chunk in iter(lambda: f.read(4096), b""):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
+
+
+def finalize_processing(file_path, model_name, output_dir):
+    """Перемещает оригинальный файл и создает обложку в папке ready"""
+    print("[INFO] Финализация файла...")
+
+    # Создаем папку ready
+    ready_dir = os.path.join(os.path.dirname(file_path), "ready")
+    os.makedirs(ready_dir, exist_ok=True)
+
+    # 1. Обработка картинки 0 градусов
+    zero_degree_img_name = f"{model_name}_000.png"
+    zero_degree_img_path = os.path.join(output_dir, zero_degree_img_name)
+
+    # Имя для превью: MD5.jpg
+    preview_img_name = f"{model_name}.jpg"
+    preview_img_path = os.path.join(ready_dir, preview_img_name)
+
+    if os.path.exists(zero_degree_img_path):
+        print(f"[INFO] Создание JPG обложки для папки ready...")
+        try:
+            # Загружаем картинку в Blender
+            img = bpy.data.images.load(zero_degree_img_path)
+
+            # Сжимаем до 640x640
+            img.scale(640, 640)
+
+            # Настройки сохранения как JPG
+            img.filepath_raw = preview_img_path
+            img.file_format = 'JPEG'
+            img.quality = 80  # Качество 80%
+
+            img.save()
+
+            # Освобождаем память
+            bpy.data.images.remove(img)
+
+            print(f"[INFO] Обложка сохранена: {preview_img_path}")
+        except Exception as e:
+            print(f"[ERROR] Не удалось сохранить обложку: {e}")
+    else:
+        print(f"[WARNING] Картинка {zero_degree_img_name} не найдена. Обложка не создана.")
+
+    # 2. Перемещение исходного файла в ready
+    try:
+        target_file_path = os.path.join(ready_dir, os.path.basename(file_path))
+        shutil.move(file_path, target_file_path)
+        print(f"[INFO] Исходный файл перемещен в: {target_file_path}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Не удалось переместить исходный файл: {e}")
+        return False
 
 
 def process_file(file_path):
@@ -322,13 +375,17 @@ def process_file(file_path):
             print(f"[ERROR] Ошибка рендеринга: {e}")
             return False
 
-    # Итоговая статистика
+    # Итоговая статистика рендеринга
     print(f"\n{'=' * 40}")
     print(f"Рендеринг {os.path.basename(file_path)} завершен")
     print(f"Всего файлов: {steps}")
     print(f"Отрендерено новых файлов: {total_rendered}")
     print(f"Пропущено существующих файлов: {skipped_files}")
     print(f"{'=' * 40}\n")
+
+    # Вызываем функцию финализации
+    if not finalize_processing(file_path, model_name, output_dir):
+        return False
 
     return True
 
