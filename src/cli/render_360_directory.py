@@ -44,7 +44,6 @@ def finalize_processing(file_path, model_name, output_dir):
             # Настройки сохранения как JPG
             img.filepath_raw = preview_img_path
             img.file_format = 'JPEG'
-            img.quality = 80  # Качество 80%
 
             img.save()
 

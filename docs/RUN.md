@@ -4,7 +4,7 @@ find .  -maxdepth 1 -type f \( -iname "*.glb" \) -exec sh -c 'for f; do dir=$(di
 /Applications/Blender.app/Contents/MacOS/Blender \
 --background \
 --python "/Users/user/PycharmProjects/360ModelSpinner/src/cli/render_360_directory.py" \
--- "/Users/user/Downloads/"
+-- "/Users/user/Downloads/GLB0.glb"
 
 find /Users/user/Downloads/renders -type f -name "*.png" -exec bash -c 'python /Users/user/Documents/3DToImage/crop_alpha.py -s "$0" -w 640 -H 1024 -f' {} \;
 

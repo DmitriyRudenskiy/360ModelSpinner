@@ -643,7 +643,7 @@ def main():
                        type=float, default=0.0,
                        help="Минимальная схожесть (по умолчанию: 0.0)")
     parser.add_argument("--similarity-threshold", "-th",
-                       type=float, default=0.95,
+                       type=float, default=0.99,
                        help="Порог схожести для группировки изображений (0.0-1.0, по умолчанию: 0.95)")
     parser.add_argument("--show-similarity-details", "-d",
                        action="store_true",
