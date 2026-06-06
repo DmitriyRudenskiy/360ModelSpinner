@@ -12,9 +12,21 @@ find /Users/user/Downloads/renders -type f -name "*.png" -exec bash -c 'python /
 python /Users/user/PycharmProjects/360ModelSpinner/src/cli/image_similarity_search.py --images . --find-unique --copy-unique-to ./unique_photos
 
 
-python /Users/user/PycharmProjects/360ModelSpinner/src/cli/crop_alpha.py -i . -p SIZE_896x1200
+python3 /Users/user/PycharmProjects/360ModelSpinner/src/cli/crop_alpha.py -i . -p SIZE_896x1200
 
 /Applications/Blender.app/Contents/MacOS/Blender \
 --background \
 --python "/Users/user/PycharmProjects/360ModelSpinner/src/cli/render_360_directory_camera_angles.py" \
--- "/Users/user/Downloads/ef51e34708d24ad203470d2de9925126.stl"
+-- "/Users/user/Downloads/ZlA8EKU11AzU59npPvTXc.stl"
+
+/Applications/Blender.app/Contents/MacOS/Blender \
+--background \
+--python "/Users/user/PycharmProjects/360ModelSpinner/src/cli/render_360_controlnet.py" \
+-- "/Users/user/Downloads/Untitled123.stl"
+
+
+/Applications/Blender.app/Contents/MacOS/Blender --background \
+    --python /Users/user/PycharmProjects/360ModelSpinner/src/cli/compositor_edges.py -- \
+    -i "/Users/user/Downloads/1381b9dcd74269f13d6005122548005e.stl" \
+    -o ./output_compositor.png \
+    -r 1024
