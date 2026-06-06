@@ -3,15 +3,19 @@ import sys
 import os
 import argparse
 import math
-from mathutils import Vector
+import addon_utils
+from mathutils import Vector, Color
 
 
 def parse_args():
     """Парсинг аргументов командной строки, передаваемых после разделителя '--'."""
-    parser = argparse.ArgumentParser(description="Freestyle Line Art рендер для 3D-моделей в Blender")
+    parser = argparse.ArgumentParser(description="Freestyle Line Art для 3D-моделей в Blender")
     parser.add_argument("-i", "--input", required=True, help="Путь к входному файлу (.stl, .glb, .gltf)")
     parser.add_argument("-o", "--output", required=True, help="Путь для сохранения результата (.png)")
     parser.add_argument("-r", "--resolution", type=int, required=True, help="Разрешение по большей стороне в пикселях")
+    parser.add_argument("--thickness", type=float, default=1.0, help="Толщина линий в пикселях (по умолчанию 1.0)")
+    parser.add_argument("--color", type=float, nargs=4, default=[0, 0, 0, 1],
+                        help="Цвет линий RGBA (0-1), по умолчанию черный")
 
     if '--' in sys.argv:
         argv = sys.argv[sys.argv.index('--') + 1:]
@@ -28,6 +32,8 @@ def main():
         input_path = args.input
         output_path = os.path.abspath(args.output)
         resolution = args.resolution
+        line_thickness = args.thickness
+        line_color = tuple(args.color)
 
         # --- 1. Валидация входных данных ---
         if not os.path.exists(input_path):
@@ -47,14 +53,6 @@ def main():
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False)
 
-        # Очищаем данные
-        for block in bpy.data.meshes:
-            if block.users == 0:
-                bpy.data.meshes.remove(block)
-        for block in bpy.data.materials:
-            if block.users == 0:
-                bpy.data.materials.remove(block)
-
         # --- 3. Импорт модели ---
         if ext == '.stl':
             try:
@@ -63,9 +61,12 @@ def main():
                 bpy.ops.import_mesh.stl(filepath=input_path)
         elif ext in ['.glb', '.gltf']:
             try:
-                bpy.ops.preferences.addon_enable(module="io_scene_gltf2")
+                addon_utils.enable('io_scene_gltf2')
             except Exception:
-                pass
+                try:
+                    bpy.ops.preferences.addon_enable(module="io_scene_gltf2")
+                except Exception:
+                    pass
             bpy.ops.import_scene.gltf(filepath=input_path)
 
         # --- 4. Подготовка модели ---
@@ -104,33 +105,32 @@ def main():
             (max(c.x for c in bbox_corners), max(c.y for c in bbox_corners), max(c.z for c in bbox_corners)))
         size = max_bound - min_bound
 
-        # --- Настройка сглаживания (Исправлено для Blender 5.0) ---
-        bpy.ops.object.shade_smooth()
-        bpy.ops.object.shade_auto_smooth()
+        # Назначение простого материала
+        mat = bpy.data.materials.new(name="SimpleMat")
+        nodes = mat.node_tree.nodes
+        bsdf = nodes.get("Principled BSDF")
+        if not bsdf:
+            for n in nodes:
+                if n.type == 'BSDF_PRINCIPLED':
+                    bsdf = n
+                    break
 
-        mod = obj.modifiers.get("Smooth by Angle")
-        if mod and mod.type == 'NODES':
-            try:
-                angle_input = mod.inputs.get("Angle")
-                if angle_input:
-                    angle_input.default_value = math.radians(35)
-            except Exception:
-                pass
-
-        # --- Материал: Черный (для слияния с фоном) ---
-        mat = bpy.data.materials.new(name="BlackMat")
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
-            # Устанавливаем черный цвет модели
-            bsdf.inputs['Base Color'].default_value = (0.0, 0.0, 0.0, 1.0)
+            try:
+                bsdf.inputs['Base Color'].default_value = (0.8, 0.8, 0.8, 1.0)
+                bsdf.inputs['Roughness'].default_value = 0.5
+            except KeyError:
+                if len(bsdf.inputs) > 0:
+                    bsdf.inputs[0].default_value = (0.8, 0.8, 0.8, 1.0)
+                if len(bsdf.inputs) > 2:
+                    bsdf.inputs[2].default_value = 0.5
 
         if obj.data.materials:
             obj.data.materials[0] = mat
         else:
             obj.data.materials.append(mat)
 
-        # --- 5. Настройка сцены (Камера и Мир) ---
+        # --- 5. Настройка сцены (Камера и Свет) ---
         scene = bpy.context.scene
 
         engines = [item.identifier for item in scene.render.bl_rna.properties['engine'].enum_items]
@@ -141,22 +141,6 @@ def main():
         else:
             scene.render.engine = 'BLENDER_WORKBENCH'
 
-        # --- Мир (Фон): Черный ---
-        world = bpy.data.worlds.get("World")
-        if not world:
-            world = bpy.data.worlds.new("World")
-        scene.world = world
-
-        if world.use_nodes:
-            bg_node = world.node_tree.nodes.get("Background")
-            if bg_node:
-                # Устанавливаем черный цвет фона
-                bg_node.inputs['Color'].default_value = (0.0, 0.0, 0.0, 1.0)
-                bg_node.inputs['Strength'].default_value = 1.0
-        else:
-            world.color = (0.0, 0.0, 0.0)
-
-        # Камера
         cam_data = bpy.data.cameras.new(name="Camera")
         cam_obj = bpy.data.objects.new("Camera", cam_data)
         scene.collection.objects.link(cam_obj)
@@ -186,26 +170,47 @@ def main():
         rot_quat = direction.to_track_quat('-Z', 'Y')
         cam_obj.rotation_euler = rot_quat.to_euler()
 
-        # --- 6. Настройка Freestyle (Белые линии) ---
+        light_data = bpy.data.lights.new(name="Sun", type='SUN')
+        light_data.energy = 3.0
+        light_data.color = (1, 1, 1)
+        light_obj = bpy.data.objects.new("Sun", light_data)
+        scene.collection.objects.link(light_obj)
+        light_obj.rotation_euler = (math.radians(50), math.radians(10), math.radians(30))
+
+        # --- 6. Настройка Freestyle (Исправлено для Blender 5.0) ---
         scene.render.use_freestyle = True
-        view_layer = scene.view_layers["ViewLayer"]
+
+        # Получаем текущий View Layer
+        view_layer = bpy.context.view_layer
         view_layer.use_freestyle = True
 
-        linesets = view_layer.freestyle_settings.linesets
-        while linesets:
-            linesets.remove(linesets[0])
+        # Создаем LineSet для контуров
+        lineset = view_layer.freestyle_settings.linesets.new("Edges")
 
-        lineset = linesets.new(name="LineArtSet")
+        # Включаем нужные типы линий (Blender 5.0 API: select_* вместо show_*)
+        lineset.select_silhouette = True  # Силуэты (внешние контуры)
+        lineset.select_border = True  # Границы между объектами
+        lineset.select_crease = True  # Острые грани (creases)
+        lineset.select_edge_mark = True  # Помеченные ребра
+        lineset.select_suggestive_contour = False  # Отключаем (создают шум)
+        lineset.select_ridge_valley = False  # Отключаем (избегаем лишних линий)
 
-        lineset.select_silhouette = True
-        lineset.select_crease = True
-        lineset.select_border = True
-
+        # Настраиваем стиль линии
         linestyle = lineset.linestyle
-        linestyle.thickness = 1.0
+        linestyle.color = Color(line_color[:3])  # RGB (mathutils.Color)
+        linestyle.alpha = line_color[3] if len(line_color) > 3 else 1.0
+        linestyle.thickness = line_thickness
 
-        # Устанавливаем белый цвет линий
-        linestyle.color = (1.0, 1.0, 1.0)
+        # Используем простое связывание (plain chaining)
+        linestyle.use_chaining = True
+        linestyle.chaining = 'PLAIN'
+        linestyle.use_same_object = False
+
+        # Опционально: белый фон
+        scene.world.use_nodes = True
+        bg_node = scene.world.node_tree.nodes.get("Background")
+        if bg_node:
+            bg_node.inputs[0].default_value = (1.0, 1.0, 1.0, 1.0)
 
         # --- 7. Рендер и сохранение ---
         scene.render.image_settings.file_format = 'PNG'
@@ -213,7 +218,7 @@ def main():
         scene.render.use_file_extension = False
 
         bpy.ops.render.render(write_still=True)
-        print(f"Успех: Результат (White Lines on Black) сохранен в {output_path}")
+        print(f"Успех: Результат сохранен в {output_path}")
 
     except Exception as e:
         print(f"Критическая ошибка при выполнении скрипта: {e}")
